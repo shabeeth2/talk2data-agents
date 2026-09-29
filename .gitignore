@@ -1,5 +1,20 @@
 *.py[cod]
 __pycache__/
+*$py.class
+
+# Python test, coverage, and packaging output
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Local databases and runtime state
 *.db
 .web
 assets/external/
@@ -15,6 +30,8 @@ node_modules/
 test-artifacts/
 .demo-tools/
 .agents/
+
+# Generated Brag / HyperFrames output (source composition and demo media stay tracked)
 brag-output/composition/renders/
 brag-output/composition/snapshots/
 brag-output/composition/.hyperframes/

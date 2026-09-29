@@ -5,7 +5,7 @@ import { defineCatalog, validateSpec } from "@json-render/core";
 import { defineRegistry, JSONUIProvider, Renderer } from "@json-render/react";
 import { schema } from "@json-render/react/schema";
 import { z } from "zod";
-import { Loader2, RotateCw, Save } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Check, Info, Loader2, RotateCw, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataChart, DataTable } from "@/components/result";
 import { AgentActivity } from "@/components/agent-activity";
@@ -260,12 +260,12 @@ export function DashboardView({
         </div>
       )}
       {result.kind === "dashboard" && result.saved_id && (
-        <div className="dashboard-comparison" role="status">
+        <div className={`dashboard-comparison is-${result.comparison?.status || "unavailable"}`} role="status">
           <strong>Saved rerun</strong>
           {result.comparison?.status === "unavailable" || !result.comparison ? (
-            <p>{result.comparison?.reason || "No preceding saved run to compare."}</p>
+            <p><Info size={14} aria-hidden="true" />{result.comparison?.reason || "No preceding saved run to compare."}</p>
           ) : (
-            <p>{result.comparison.status === "same" ? "No change" : `${result.comparison.delta! > 0 ? "+" : ""}${new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(result.comparison.delta!)} ${result.metric_context?.unit || "(unit unspecified)"}`} · {new Date(result.comparison.previous_at!).toLocaleString()} → {new Date(result.comparison.current_at!).toLocaleString()}</p>
+            <p>{result.comparison.status === "same" ? <Check size={14} aria-hidden="true" /> : result.comparison.delta! > 0 ? <ArrowUpRight size={14} aria-hidden="true" /> : <ArrowDownRight size={14} aria-hidden="true" />}{result.comparison.status === "same" ? "No change" : `${result.comparison.delta! > 0 ? "Increased by" : "Decreased by"} ${new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(Math.abs(result.comparison.delta!))} ${result.metric_context?.unit || "(unit unspecified)"}`} · {new Date(result.comparison.previous_at!).toLocaleString()} → {new Date(result.comparison.current_at!).toLocaleString()}</p>
           )}
         </div>
       )}

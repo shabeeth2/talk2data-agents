@@ -111,7 +111,7 @@ export function DataChart({ chart }: { chart: ChartData }) {
               dataKey={chart.y}
               stroke="var(--chart-1)"
               strokeWidth={2}
-              fill="var(--accent)"
+              fill="var(--chart-fill)"
             />
           </AreaChart>
         )}
