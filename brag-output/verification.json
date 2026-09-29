@@ -1,0 +1,20 @@
+{
+  "hyperframes_version": "0.8.91",
+  "check_passed": true,
+  "lint_errors": 0,
+  "runtime_errors": 0,
+  "layout_errors": 0,
+  "contrast_errors": 0,
+  "contrast_checks_passed": 57,
+  "reviewed_warnings": "Four scenes intentionally share a simple root timeline; no sub-compositions needed for this 22-second edit.",
+  "duration_seconds": 22,
+  "width": 1280,
+  "height": 720,
+  "frames": 660,
+  "video_codec": "h264",
+  "audio_codec": "aac",
+  "poster_timestamp_seconds": 15.9,
+  "poster_baked_into_frame_zero": true,
+  "data": "Only the seeded Sample retail data source",
+  "live_model_recording": false
+}
