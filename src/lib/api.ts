@@ -8,6 +8,9 @@ export type DashboardResult = Result & {
   answers?: Record<string, string>;
   generated_by?: "model" | "starter";
   notice?: string;
+  metric_context?: { unit: string | null; definition: string | null };
+  scope?: { table?: string; coverage: string; aggregation?: string; metric?: string; date_column?: string | null; min_date?: string | null; max_date?: string | null; record_count?: number };
+  comparison?: { status: "changed" | "same" | "unavailable"; reason?: string; previous?: number; current?: number; delta?: number; previous_at?: string; current_at?: string };
 };
 export type ChartData = { type: string; x?: string; y?: string; data: Row[] };
 export type Settings = {

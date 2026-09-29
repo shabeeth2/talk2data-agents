@@ -1,6 +1,6 @@
 # Talk2Data
 
-A local data investigation workbench. Ask questions about SQL databases or uploaded files, clarify what you mean, and inspect dashboards backed by actual read-only queries.
+A local data investigation workbench for analysts. Import a file or connect SQL, ask a question, inspect how a metric was calculated, and rerun a saved dashboard when data changes.
 
 Built with Next.js, Vercel AI Elements, AI SDK agents, json-render, and a FastAPI adapter for the Python data engine. Reflex has been removed.
 
@@ -8,9 +8,9 @@ Built with Next.js, Vercel AI Elements, AI SDK agents, json-render, and a FastAP
 
 [![Watch the Talk2Data demo](brag-output/brag.jpg)](brag-output/brag.mp4)
 
-**[Watch the 22-second demo](brag-output/brag.mp4)** · [Storyboard](brag-output/brag-plan.md) · [Share copy](brag-output/share-copy.txt)
+**[Watch the 25-second demo](brag-output/brag.mp4)** · [Storyboard](brag-output/brag-plan.md) · [Share copy](brag-output/share-copy.txt)
 
-Created with the installed [Brag skill](https://github.com/latent-spaces/brag) and Hyperframes. The demo recreates the working prompt → metric clarification → revenue dashboard → SQL inspection flow. Its **2,146,483.46 total revenue and 2,160 rows** come from queries against the seeded retail source. It uses no private data. This is an illustrated product workflow, not a recording of a live model call.
+Created with the installed [Brag skill](https://github.com/latent-spaces/brag) and Hyperframes. The illustrated flow imports a synthetic retail CSV, asks **“How did retail performance change by region?”**, selects `revenue`, supplies **USD** and a metric definition, inspects the full-table result and SQL, then reimports an updated file and reruns the saved dashboard. Queries against the two [public synthetic CSVs](brag-output/composition/assets/data/) produce **800 USD → 870 USD (+70 USD)** across six rows dated January 1–3, 2026. The chart shows its axis scale. This is an illustration, not a recording of a live model call, and it does not establish real-world demand or independent usability.
 
 ## Run locally
 
@@ -38,7 +38,7 @@ Open [localhost:3000](http://localhost:3000). The engine creates **Sample retail
 ## Try it
 
 - Select **Sample retail data** and ask `Which region has the most revenue?` or `Show revenue over time`.
-- Choose **Build a dashboard**, the sidebar **+**, or `/dashboard revenue`. Answer missing table/metric questions, inspect each widget's SQL, then save it. Reopening a saved dashboard queries fresh data from its saved source and request.
+- Choose **Build a dashboard**, the sidebar **+**, or `/dashboard revenue`. The welcome screen shows the active source/table and schema-derived question examples. Clarify the metric; **Record count (table rows)** is distinct from an `orders` column. Optionally supply a unit and short metric definition, inspect the calculation, scope, actual date bounds, factual summary, and each widget's SQL, then save it. Reopening a saved dashboard queries fresh data and compares its primary metric with the preceding stored run only when the source, SQL, unit, and calculation scope match. A missing or unsafe comparison is stated explicitly.
 - Ask `Why did revenue drop?`, or choose **Investigate a change** to select a table, date, measure, breakdown, and equal 7/14/28-day windows. Save the settings and rerun the generated `/check_ID` command. Export the evidence as JSON.
 - Use `/forecast` for a seasonal naive forecast with holdout evaluation, `/anomaly` for median-based outlier checks, or `/profile` for a data profile.
 - Upload CSV, TSV, XLSX, Parquet, JSON, or JSONL, limited to 30 MB and 150 columns.
@@ -57,6 +57,8 @@ Two server-side AI SDK `ToolLoopAgent` configurations share a small tool boundar
 Schema inspection comes first. The selected source is pinned outside model tool arguments. Runs stop after six model steps, twelve tool calls, or sixty seconds. Failed queries can be corrected; invalid calls cannot silently return stale earlier results. The UI displays checked tool activity and renders engine output rather than model-generated values or prose. MCP tools are never called automatically.
 
 Dashboard plans use an allowlisted json-render catalog. The engine validates the entire layout and every SQL statement before executing queries, fills widgets from real results, and caps charts/records at 200 rows. Saved dashboards store settings, not generated SQL.
+
+Starter dashboards report the selected source and table, aggregation, full-table scope, actual minimum and maximum dates when present, and a short summary derived from queried values. Missing units or dates are marked unspecified. Model-planned dashboards expose SQL for each widget and avoid claiming a shared scope that the executed queries cannot establish. Units are analyst-supplied; a column named `revenue` does not imply a currency.
 
 The minimal chat interface composes official AI Elements messages, Markdown, conversation scrolling and prompt input with shadcn/Radix controls, Lucide icons, Recharts and self-hosted Geist fonts. Dark mode follows your system setting; the header toggle saves your preference. Advanced controls appear when needed. Table exports include visible rows; evidence exports include the complete investigation payload.
 
@@ -94,13 +96,18 @@ npm run typecheck
 npm run build
 ```
 
-Validation for this delivery: **28 Python tests and 13 agent tests passed**, TypeScript checked, and the production frontend built. Agent tests use the AI SDK mock provider to cover schema-first execution, source pinning, clarification, dashboard materialization, query corrections, invalid-call recovery, stale-result rejection, saved reruns and step limits. The browser flow was checked with starter data; no live provider was exercised.
+For this revision, **30 Python tests and 13 agent tests passed**, TypeScript checked, and the production frontend built. The verification suite covers ambiguous metric choices, supplied and missing units, full-table date bounds, saved settings, changed-data reruns, no-change reruns, and refusal to compare unlike calculations. The live starter flow and desktop/390 px phone layouts were reviewed. Agent tests use the AI SDK mock provider. No live model provider is required for the starter flow.
+
+## User-study protocol (not yet performed)
+
+Recruit five working analysts and ask each to use their own file or SQL source without coaching. Give them a real question from their work, then observe whether they can connect the source, answer that question, explain the chosen metric and scope, and rerun the saved dashboard after data changes. Record task completion, mistakes, time, and the points where they ask for help; ask whether they would return for another question. These outcomes, real-world demand, and repeat use remain **unverified** until the study is run.
 
 ## Recreate the demo
 
 The editable composition and public sample data are in `brag-output/composition/`. Use FFmpeg/ffprobe on your PATH and a Chrome browser. The composition's scripts pin Hyperframes 0.8.91:
 
 ```bash
+python brag-output/build-demo-data.py
 cd brag-output/composition
 npm run check
 npm run render -- --quality delivery --output ../brag.mp4 --workers 1

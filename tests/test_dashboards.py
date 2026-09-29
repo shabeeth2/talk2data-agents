@@ -43,11 +43,15 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(questions["tool"], "addUserQuestions")
         self.assertEqual(questions["questions"][0]["id"], "metric")
         self.assertEqual(questions["spec"]["elements"]["questions"]["type"], "UserQuestions")
-        self.assertEqual(questions["questions"][0]["options"], ["Rows", "visits", "signups"])
+        self.assertEqual(questions["questions"][0]["options"], ["Record count (table rows)", "visits", "signups"])
         result = dashboards.generate(self.source, "Build a dashboard", {"metric": "visits"})
         self.assertEqual(result["generated_by"], "starter")
         elements = result["spec"]["elements"]
         self.assertEqual(elements["total"]["props"]["value"], 30)
+        self.assertEqual(result["scope"]["aggregation"], "SUM")
+        self.assertEqual(result["scope"]["min_date"], "2026-01-01")
+        self.assertEqual(result["scope"]["max_date"], "2026-01-02")
+        self.assertIsNone(result["metric_context"]["unit"])
         self.assertEqual(elements["rows"]["props"]["value"], 2)
         self.assertEqual(elements["trend"]["props"]["data"], [{"day": "2026-01-01", "value": 10}, {"day": "2026-01-02", "value": 20}])
         self.assertNotIn("retail", json.dumps(elements))
@@ -65,6 +69,24 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(result["spec"]["elements"]["total"]["props"]["value"], 30)
         result = dashboards.generate("Warehouse", "dashboard", {"table": "file_traffic", "metric": "Rows"})
         self.assertEqual(result["spec"]["elements"]["total"]["props"]["value"], 2)
+        self.assertEqual(result["spec"]["elements"]["total"]["props"]["title"], "Record count (table rows)")
+
+    def test_metric_context_and_safe_saved_comparison(self):
+        answers = {"metric": "visits", "unit": "people", "definition": "Visits recorded in the file"}
+        first = dashboards.generate(self.source, "Dashboard visits", answers)
+        self.assertEqual(first["metric_context"], {"unit": "people", "definition": answers["definition"]})
+        saved_id = dashboards.save("Traffic", self.source, "Dashboard visits", answers)
+        with engine._db() as db:
+            db.execute("UPDATE file_traffic SET visits=visits*2")
+        changed = dashboards.rerun(saved_id)
+        self.assertEqual(changed["comparison"]["status"], "changed")
+        self.assertEqual(changed["comparison"]["delta"], 30)
+        unchanged = dashboards.rerun(saved_id)
+        self.assertEqual(unchanged["comparison"]["status"], "same")
+        self.assertEqual(unchanged["comparison"]["delta"], 0)
+        different_unit = dashboards.rerun(saved_id, {"unit": "sessions"})
+        self.assertEqual(different_unit["comparison"]["status"], "unavailable")
+        self.assertEqual(dashboards.saved()[0]["answers"], answers)
 
     def test_model_tool_and_allowlisted_plan(self):
         question_message = {"choices": [{"message": {"tool_calls": [{"function": {"name": "addUserQuestions", "arguments": json.dumps({"questions": [{"id": "metric", "question": "Which metric?", "options": ["visits", "signups"]}]})}}]}}]}

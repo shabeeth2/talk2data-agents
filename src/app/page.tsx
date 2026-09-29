@@ -60,23 +60,19 @@ const DashboardView = dynamic(
   () => import("@/components/dashboard").then((m) => m.DashboardView),
   { loading: () => <p className="loading-inline">Preparing dashboard…</p> },
 );
-const starters = [
-  {
-    icon: ChartNoAxesCombined,
-    label: "Visualize a trend",
-    prompt: "Show revenue over time",
-  },
-  {
-    icon: FlaskConical,
-    label: "Investigate a change",
-    prompt: "Why did revenue drop?",
-  },
-  {
-    icon: LayoutDashboard,
-    label: "Build a dashboard",
-    prompt: "/dashboard",
-  },
-];
+function suggestedQuestions(tables: { table: string; columns: string[] }[]) {
+  const table = tables[0];
+  if (!table) return [];
+  const names = table.columns.map((column) => column.replace(/ \([^)]*\)$/, ""));
+  const numeric = table.columns.filter((column) => /\((?:BIGINT|SMALLINT|INTEGER|INT|REAL|FLOAT|DOUBLE|NUMERIC|DECIMAL)/i.test(column)).map((column) => column.replace(/ \([^)]*\)$/, ""));
+  const date = names.find((name) => /date|time|month|day/i.test(name));
+  const metric = numeric.find((name) => !/^(id|.*_id)$/i.test(name));
+  const dimension = names.find((name) => name !== date && !numeric.includes(name));
+  return [
+    metric && date ? `How did ${metric} change over ${date} in ${table.table}?` : `How many records are in ${table.table}?`,
+    metric && dimension ? `Compare ${metric} by ${dimension} in ${table.table}` : `Show the columns and first records in ${table.table}`,
+  ];
+}
 function IconButton({
   label,
   children,
@@ -257,6 +253,7 @@ export default function Workbench() {
         search === null ||
         r.question.toLowerCase().includes(search.toLowerCase()),
     ) || [];
+  const suggestions = suggestedQuestions(tables);
   const navigation = (
     <>
       <div className="brand-row">
@@ -356,10 +353,11 @@ export default function Workbench() {
               aria-label="New dashboard"
               disabled={busy || !source}
               onClick={() =>
-                void action("/dashboard", () =>
+                void action(suggestedQuestions(tables)[0] || "/dashboard", () =>
                   api<Result>("/agent", {
                     source,
-                    question: "/dashboard",
+                    question: suggestedQuestions(tables)[0] || "/dashboard",
+                    mode: "dashboard",
                   }),
                 )
               }
@@ -570,10 +568,10 @@ export default function Workbench() {
                         }),
                   )
                 }
-                onSaved={async (id, name) => {
+                onSaved={async (id, name, answers) => {
                   setDashboard((current) =>
                     current
-                      ? { ...current, saved_id: id, saved_name: name }
+                      ? { ...current, saved_id: id, saved_name: name, answers, metric_context: { unit: answers.unit || null, definition: answers.definition || null } }
                       : current,
                   );
                   await refresh();
@@ -584,7 +582,7 @@ export default function Workbench() {
                 <div className="welcome-symbol">
                   <ChartNoAxesCombined size={29} strokeWidth={1.5} />
                 </div>
-                <h1>What’s in your data?</h1>
+                <h1>Ask a question your data can answer.</h1>
                 <div className="source-context">
                   <span className="source-dot" />
                   {source || "Connecting to your workspace…"}
@@ -592,13 +590,13 @@ export default function Workbench() {
                     <>
                       <span className="context-divider">/</span>
                       <button onClick={() => setPanel("schema")}>
-                        {tables.length}{" "}
-                        {tables.length === 1 ? "table" : "tables"}
+                        {tables[0]?.table}{tables.length > 1 ? ` + ${tables.length - 1} more` : ""}
                         <ArrowRight size={12} />
                       </button>
                     </>
                   )}
                 </div>
+                <button className="welcome-import" onClick={() => setPanel("connect")}>Import a file or connect SQL <ArrowRight size={14} /></button>
               </div>
             ) : (
               <Conversation className="conversation">
@@ -726,22 +724,11 @@ export default function Workbench() {
                   />
                 </PromptInputFooter>
               </PromptInput>
-              {!entries.length && !busy && !dashboard && (
+              {!entries.length && !busy && !dashboard && suggestions.length > 0 && (
                 <div className="starters">
-                  {starters.map((s, i) => (
-                    <button
-                      key={s.label}
-                      disabled={!source}
-                      onClick={() => {
-                        if (i === 1) setPanel("change");
-                        else {
-                          setDraft(s.prompt);
-                          composer.current?.focus();
-                        }
-                      }}
-                    >
-                      <s.icon size={17} />
-                      <strong>{s.label}</strong>
+                  {suggestions.map((prompt) => (
+                    <button key={prompt} onClick={() => { setDraft(prompt); composer.current?.focus(); }}>
+                      <ChartNoAxesCombined size={17} /><strong>{prompt}</strong>
                     </button>
                   ))}
                 </div>

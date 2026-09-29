@@ -174,6 +174,7 @@ def agent_dashboard(body: AgentDashboard):
             raise ValueError("The saved dashboard settings do not match this request.")
     result = dashboards.materialize(body.source, body.question, body.answers, body.plan)
     if saved:
+        result = dashboards.compare_saved_run(body.saved_id, result)
         dashboards.mark_run(body.saved_id, result["as_of"])
         result.update(saved_id=body.saved_id, saved_name=saved["name"])
     return result

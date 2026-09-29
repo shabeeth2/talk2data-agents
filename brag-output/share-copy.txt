@@ -1,1 +1,1 @@
-Talk2Data turns questions into dashboards you can inspect. Ask, clarify, query, and keep the evidence.
+Talk2Data helps analysts ask a question, verify the metric and SQL, then rerun the same saved calculation on changed data. This 25-second illustrated demo uses two public synthetic retail files: 800 → 870 USD (+70 USD). No live model call or user-study outcome is implied.

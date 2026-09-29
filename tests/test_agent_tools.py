@@ -127,6 +127,25 @@ class AgentToolTests(unittest.TestCase):
         self.assertEqual(clarified.json()["answers"], {"metric": "Rows"})
         self.assertEqual(dashboards.saved()[0]["answers"], payload["answers"])
 
+    def test_saved_agent_dashboard_compares_changed_data_with_previous_run(self):
+        payload = self.payload()
+        payload["answers"] = {"metric": "visits", "unit": "sessions",
+                              "definition": "Sum of visits recorded in this file."}
+        payload["saved_id"] = dashboards.save("Traffic watch", self.source, payload["question"], payload["answers"])
+        first = self.client.post("/api/agent/dashboard", json=payload)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["comparison"]["status"], "unavailable")
+        with engine._db() as db:
+            db.execute("UPDATE file_traffic SET visits=visits*2")
+        second = self.client.post("/api/agent/dashboard", json=payload)
+        self.assertEqual(second.status_code, 200)
+        result = second.json()
+        self.assertEqual(result["metric_context"], {"unit": "sessions", "definition": payload["answers"]["definition"]})
+        self.assertEqual(result["comparison"]["status"], "changed")
+        self.assertEqual((result["comparison"]["previous"], result["comparison"]["current"],
+                          result["comparison"]["delta"]), (30, 60, 30))
+        self.assertEqual(dashboards.saved()[0]["answers"], payload["answers"])
+
     def test_saved_dashboard_fallback_merges_fresh_answers_without_overwriting_settings(self):
         saved_answers = {"table": "file_traffic", "metric": "visits"}
         saved_id = dashboards.save("Traffic watch", self.source, "Dashboard", saved_answers)

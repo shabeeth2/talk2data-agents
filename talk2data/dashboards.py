@@ -94,34 +94,38 @@ def _starter(source: str, question: str, tables: list, answers: dict, quote) -> 
     names = [c.rsplit(" (", 1)[0] for c in columns]
     numeric = [c.rsplit(" (", 1)[0] for c in columns if re.search(r"\((?:BIGINT|SMALLINT|INTEGER|INT|REAL|FLOAT|DOUBLE|NUMERIC|DECIMAL)", c, re.I)]
     metric = answers.get("metric")
+    if metric == "Record count (table rows)":
+        metric = "Rows"
     if metric and metric not in ["Rows", *numeric]:
         raise ValueError("Choose a numeric metric from the current table.")
     if not metric:
         matches = [c for c in numeric if re.search(rf"(?<!\w){re.escape(c)}(?!\w)", question, re.I)]
         metric = matches[0] if len(matches) == 1 else numeric[0] if len(numeric) == 1 else "Rows" if not numeric else None
     if not metric:
-        return {"questions": [{"id": "metric", "question": "Which metric?", "options": ["Rows", *numeric]}]}
+        return {"questions": [{"id": "metric", "question": "Which metric?", "options": ["Record count (table rows)", *numeric]}]}
     table = quote(selected)
     aggregate = "COUNT(*)" if metric == "Rows" else f"SUM({quote(metric)})"
-    title = f"{metric} overview"
+    unit_label = f" · {answers['unit'].strip()}" if answers.get("unit", "").strip() and metric != "Rows" else ""
+    title = f"{('Record count' if metric == 'Rows' else metric)} overview"
     elements = {"dashboard": {"type": "DashboardGrid", "props": {"columns": 2}, "children": []}}
     def add(key, kind, props):
         elements[key] = {"type": kind, "props": props, "children": []}
         elements["dashboard"]["children"].append(key)
-    add("total", "Metric", {"title": f"Total {metric.lower()}", "sql": f"SELECT {aggregate} AS value FROM {table}"})
+    add("total", "Metric", {"title": "Record count (table rows)" if metric == "Rows" else f"Total {metric}{unit_label}", "sql": f"SELECT {aggregate} AS value FROM {table}"})
     if metric != "Rows":
-        add("rows", "Metric", {"title": "Rows", "sql": f"SELECT COUNT(*) AS value FROM {table}"})
+        add("rows", "Metric", {"title": "Record count (table rows)", "sql": f"SELECT COUNT(*) AS value FROM {table}"})
     date = next((c for c in names if re.search(r"date|time|month|day", c, re.I)), None)
     if date:
-        add("trend", "Chart", {"title": f"{metric} by {date}", "type": "line", "x": date, "y": "value",
+        add("trend", "Chart", {"title": f"{metric} by {date}{unit_label}", "type": "line", "x": date, "y": "value",
                                "sql": f"SELECT {quote(date)}, {aggregate} AS value FROM {table} GROUP BY {quote(date)} ORDER BY {quote(date)}"})
     dimension = next((c for c in names if c not in numeric and c != date), None)
     if dimension:
-        add("breakdown", "Chart", {"title": f"{metric} by {dimension}", "type": "bar", "x": dimension, "y": "value",
+        add("breakdown", "Chart", {"title": f"{metric} by {dimension}{unit_label}", "type": "bar", "x": dimension, "y": "value",
                                    "sql": f"SELECT {quote(dimension)}, {aggregate} AS value FROM {table} GROUP BY {quote(dimension)} ORDER BY value DESC"})
     add("records", "DataTable", {"title": "Records", "sql": f"SELECT * FROM {table}"})
     add("scope", "Note", {"text": f"Starter overview of {selected}. Entire table; no date or other filters applied. Charts and records show up to 200 rows."})
-    return {"title": title, "spec": {"root": "dashboard", "elements": elements}}
+    return {"title": title, "spec": {"root": "dashboard", "elements": elements},
+            "_starter_context": {"table": selected, "metric": metric, "aggregation": "COUNT" if metric == "Rows" else "SUM", "date_column": date}}
 
 
 def validate_plan(plan: dict) -> dict:
@@ -162,6 +166,8 @@ def validate_plan(plan: dict) -> dict:
 def _validate_answers(answers: dict) -> None:
     if not isinstance(answers, dict) or len(answers) > 4 or any(not isinstance(k, str) or not isinstance(v, str) or len(k) > 80 or len(v) > 300 for k, v in answers.items()):
         raise ValueError("Invalid dashboard answers.")
+    if len(answers.get("unit", "")) > 40 or len(answers.get("definition", "")) > 300:
+        raise ValueError("Invalid metric context.")
 
 
 def generate(source: str, question: str, answers: dict | None = None) -> dict:
@@ -189,10 +195,11 @@ def generate(source: str, question: str, answers: dict | None = None) -> dict:
         plan = _starter(source, question, tables, answers, quote)
     if isinstance(plan, dict) and set(plan) == {"questions"}:
         return _questions(source, question, plan["questions"], answers)
-    return materialize(source, question, answers, plan, generated_by, notice=note)
+    context = plan.pop("_starter_context", None)
+    return materialize(source, question, answers, plan, generated_by, notice=note, starter_context=context)
 
 
-def materialize(source: str, question: str, answers: dict, plan: dict, generated_by: str = "model", *, notice: str = "") -> dict:
+def materialize(source: str, question: str, answers: dict, plan: dict, generated_by: str = "model", *, notice: str = "", starter_context: dict | None = None) -> dict:
     """Execute an already planned dashboard without invoking a model.
 
     Validate the whole plan first. Values and records come only from bounded
@@ -205,6 +212,8 @@ def materialize(source: str, question: str, answers: dict, plan: dict, generated
     plan = validate_plan(copy.deepcopy(plan))
     for element in plan["spec"]["elements"].values():
         kind, props = element["type"], element["props"]
+        if generated_by == "model" and kind == "Note":
+            props["text"] = "Inspect each widget’s SQL to verify filters and date scope."
         if kind in {"Metric", "Chart", "DataTable"}:
             frame = engine.execute(source, props["sql"], limit=201)
             if kind == "Metric":
@@ -222,7 +231,33 @@ def materialize(source: str, question: str, answers: dict, plan: dict, generated
                     props["columns"] = list(frame.columns)
                     props["rows"] = json.loads(frame.head(200).to_json(orient="records", date_format="iso"))
     result = {"kind": "dashboard", "source": source, "question": question, "answers": answers,
-              "generated_by": generated_by, "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds"), **plan}
+              "generated_by": generated_by, "as_of": datetime.now(timezone.utc).isoformat(timespec="microseconds"), **plan}
+    result["metric_context"] = {"unit": answers.get("unit", "").strip() or None,
+                                "definition": answers.get("definition", "").strip() or None}
+    if starter_context:
+        table = starter_context["table"]
+        from sqlalchemy import create_engine
+        connection = create_engine(engine.source_url(source).split("#", 1)[0])
+        try:
+            quoted_table = connection.dialect.identifier_preparer.quote(table)
+            date_column = starter_context["date_column"]
+            quoted_date = connection.dialect.identifier_preparer.quote(date_column) if date_column else None
+        finally:
+            connection.dispose()
+        date_sql = f"MIN({quoted_date}) AS first_date, MAX({quoted_date}) AS last_date, " if quoted_date else ""
+        frame = engine.execute(source, f"SELECT {date_sql}COUNT(*) AS record_count FROM {quoted_table}", limit=1)
+        first = frame.iloc[0].get("first_date") if quoted_date else None
+        last = frame.iloc[0].get("last_date") if quoted_date else None
+        metric_value = plan["spec"]["elements"]["total"]["props"]["value"]
+        count = int(frame.iloc[0]["record_count"])
+        result["scope"] = {"table": table, "coverage": "Entire table; no filters",
+                           "aggregation": starter_context["aggregation"], "metric": starter_context["metric"],
+                           "date_column": date_column, "min_date": str(first) if pd.notna(first) else None,
+                           "max_date": str(last) if pd.notna(last) else None, "record_count": count}
+        number = f"{metric_value:,.2f}" if metric_value is not None else "unavailable"
+        result["summary"] = f"{starter_context['aggregation']} of {starter_context['metric']} is {number}{(' ' + answers['unit'].strip()) if answers.get('unit', '').strip() and starter_context['metric'] != 'Rows' else ''} across {count:,} table rows."
+    else:
+        result["scope"] = {"coverage": "Scope depends on each widget’s SQL; shared filters and date period are unverified."}
     if notice:
         result["notice"] = notice
     with _db() as db:
@@ -256,9 +291,23 @@ def save(name: str, source: str, question: str, answers: dict, dashboard_id: int
             cursor = db.execute("UPDATE dashboards SET name=?,source=?,question=?,answers=? WHERE id=?", (name, source, question, json.dumps(answers), dashboard_id))
             if not cursor.rowcount:
                 raise ValueError("That saved dashboard no longer exists.")
+            _tag_latest_run(db, dashboard_id, source, question, answers)
             return dashboard_id
         cursor = db.execute("INSERT INTO dashboards (name,source,question,answers) VALUES (?,?,?,?)", (name, source, question, json.dumps(answers)))
+        _tag_latest_run(db, cursor.lastrowid, source, question, answers)
         return cursor.lastrowid
+
+
+def _tag_latest_run(db, dashboard_id: int, source: str, question: str, answers: dict | None = None) -> None:
+    row = db.execute("SELECT id,payload FROM runs WHERE kind='dashboard' AND source=? AND question=? ORDER BY id DESC LIMIT 1", (source, question)).fetchone()
+    if row:
+        payload = json.loads(row["payload"])
+        payload["saved_id"] = dashboard_id
+        if answers is not None:
+            payload["answers"] = answers
+            payload["metric_context"] = {"unit": answers.get("unit", "").strip() or None,
+                                         "definition": answers.get("definition", "").strip() or None}
+        db.execute("UPDATE runs SET payload=? WHERE id=?", (json.dumps(payload), row["id"]))
 
 
 def rerun(dashboard_id: int, answers: dict | None = None) -> dict:
@@ -271,8 +320,47 @@ def rerun(dashboard_id: int, answers: dict | None = None) -> dict:
     merged_answers = {**json.loads(row["answers"]), **(answers or {})}
     result = generate(row["source"], row["question"], merged_answers)
     if result["kind"] == "dashboard":
+        result = compare_saved_run(dashboard_id, result)
         mark_run(dashboard_id, result["as_of"])
     return {**result, "saved_id": dashboard_id, "saved_name": row["name"]}
+
+
+def compare_saved_run(dashboard_id: int, result: dict) -> dict:
+    """Compare with the preceding stored run only when the calculation matches."""
+    result = dict(result)
+    result["comparison"] = {"status": "unavailable", "reason": "No preceding saved run."}
+    if result.get("kind") != "dashboard":
+        return result
+    current_sql = result["spec"]["elements"].get("total", {}).get("props", {}).get("sql")
+    current_value = result["spec"]["elements"].get("total", {}).get("props", {}).get("value")
+    if not current_sql or current_value is None:
+        result["comparison"]["reason"] = "No comparable primary metric. Inspect widget SQL."
+        return result
+    with _db() as db:
+        current_row = db.execute("SELECT id FROM runs WHERE kind='dashboard' AND source=? AND question=? ORDER BY id DESC LIMIT 1", (result["source"], result["question"])).fetchone()
+        prior_rows = db.execute("SELECT payload FROM runs WHERE kind='dashboard' AND id<? ORDER BY id DESC", (current_row["id"] if current_row else 0,)).fetchall()
+    for row in prior_rows:
+        prior = json.loads(row["payload"])
+        if prior.get("saved_id") != dashboard_id:
+            continue
+        prior_sql = prior.get("spec", {}).get("elements", {}).get("total", {}).get("props", {}).get("sql")
+        prior_value = prior.get("spec", {}).get("elements", {}).get("total", {}).get("props", {}).get("value")
+        stable_scope = ("table", "coverage", "aggregation", "metric", "date_column")
+        same_scope = all(prior.get("scope", {}).get(key) == result.get("scope", {}).get(key) for key in stable_scope)
+        same = (prior.get("source") == result["source"] and prior_sql == current_sql and
+                prior.get("metric_context", {}).get("unit") == result.get("metric_context", {}).get("unit") and
+                same_scope and prior_value is not None)
+        if same:
+            delta = current_value - prior_value
+            result["comparison"] = {"status": "same" if delta == 0 else "changed", "previous": prior_value,
+                                    "current": current_value, "delta": delta, "previous_at": prior.get("as_of"),
+                                    "current_at": result.get("as_of")}
+        else:
+            result["comparison"]["reason"] = "The source, SQL, unit, or scope changed; comparison is unsafe."
+        break
+    with _db() as db:
+        _tag_latest_run(db, dashboard_id, result["source"], result["question"])
+    return result
 
 
 def mark_run(dashboard_id: int, as_of: str) -> None:

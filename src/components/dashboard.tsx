@@ -89,7 +89,7 @@ function UserQuestions({ questions }: { questions: UserQuestion[] }) {
                 key={option}
                 onClick={() => setAnswers({ ...answers, [q.id]: option })}
               >
-                {option}
+                {option === "Rows" ? "Record count (table rows)" : option}
               </button>
             ))}
           </div>
@@ -104,6 +104,12 @@ function UserQuestions({ questions }: { questions: UserQuestion[] }) {
           />
         </fieldset>
       ))}
+      {questions.some((q) => q.id === "metric") && (
+        <div className="metric-context-fields">
+          <label>Unit <span>optional</span><input aria-label="Metric unit" placeholder="e.g. USD, orders, kg" maxLength={40} value={answers.unit || ""} onChange={(event) => setAnswers({ ...answers, unit: event.target.value })} /></label>
+          <label>Metric definition <span>optional</span><input aria-label="Metric definition" placeholder="What does this measure include?" maxLength={300} value={answers.definition || ""} onChange={(event) => setAnswers({ ...answers, definition: event.target.value })} /></label>
+        </div>
+      )}
       <Button
         type="submit"
         disabled={busy || questions.some((q) => !answers[q.id]?.trim())}
@@ -175,7 +181,7 @@ export function DashboardView({
   busy: boolean;
   onAnswer: (answers: Record<string, string>) => void;
   onRefresh: () => void;
-  onSaved: (id: number, name: string) => Promise<void>;
+  onSaved: (id: number, name: string, answers: Record<string, string>) => Promise<void>;
 }) {
   const [name, setName] = useState(
     result.saved_name || result.title || "Dashboard",
@@ -183,6 +189,8 @@ export function DashboardView({
   const [savedId, setSavedId] = useState(result.saved_id);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [unit, setUnit] = useState(result.answers?.unit || "");
+  const [definition, setDefinition] = useState(result.answers?.definition || "");
   const valid =
     dashboardCatalog.validate(result.spec).success &&
     validateSpec(result.spec).valid;
@@ -190,15 +198,16 @@ export function DashboardView({
     setSaving(true);
     setError("");
     try {
+      const answers = { ...result.answers, unit: unit.trim(), definition: definition.trim() };
       const saved = await api<{ id: number }>("/dashboards/save", {
         name: name.trim(),
         source: result.source,
         question: result.question,
-        answers: result.answers || {},
+        answers,
         ...(savedId ? { id: savedId } : {}),
       });
       setSavedId(saved.id);
-      await onSaved(saved.id, name.trim());
+      await onSaved(saved.id, name.trim(), answers);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -240,6 +249,26 @@ export function DashboardView({
           </Button>
         )}
       </header>
+      <div className="dashboard-question"><span>Original question</span><p>{result.question}</p></div>
+      {result.kind === "dashboard" && (
+        <div className="dashboard-context">
+          <p><strong>Calculation</strong> {result.scope?.aggregation && result.scope?.metric ? `${result.scope.aggregation} of ${result.scope.metric === "Rows" ? "table rows" : result.scope.metric}` : "See each widget’s SQL"}</p>
+          <p><strong>Source and scope</strong> {result.scope?.table ? `${result.source} / ${result.scope.table} · ${result.scope.coverage}` : result.scope?.coverage || "Scope unspecified; inspect SQL"}</p>
+          <p><strong>Period</strong> {result.scope?.min_date && result.scope?.max_date ? `${result.scope.min_date} to ${result.scope.max_date}` : "Unspecified"}</p>
+          <p><strong>Unit</strong> {result.metric_context?.unit || "Unspecified"} <span>·</span> <strong>Definition</strong> {result.metric_context?.definition || "Unspecified"}</p>
+          {result.summary && <p className="dashboard-factual-summary">{result.summary}</p>}
+        </div>
+      )}
+      {result.kind === "dashboard" && result.saved_id && (
+        <div className="dashboard-comparison" role="status">
+          <strong>Saved rerun</strong>
+          {result.comparison?.status === "unavailable" || !result.comparison ? (
+            <p>{result.comparison?.reason || "No preceding saved run to compare."}</p>
+          ) : (
+            <p>{result.comparison.status === "same" ? "No change" : `${result.comparison.delta! > 0 ? "+" : ""}${new Intl.NumberFormat("en", { maximumFractionDigits: 2 }).format(result.comparison.delta!)} ${result.metric_context?.unit || "(unit unspecified)"}`} · {new Date(result.comparison.previous_at!).toLocaleString()} → {new Date(result.comparison.current_at!).toLocaleString()}</p>
+          )}
+        </div>
+      )}
       {result.notice && (
         <p className="dashboard-notice" role="status">
           {result.notice}
@@ -279,6 +308,10 @@ export function DashboardView({
             void save();
           }}
         >
+          <div className="metric-context-fields">
+            <label>Unit <span>optional</span><input aria-label="Metric unit" placeholder="e.g. USD" maxLength={40} value={unit} onChange={(event) => setUnit(event.target.value)} /></label>
+            <label>Metric definition <span>optional</span><input aria-label="Metric definition" placeholder="What does this measure include?" maxLength={300} value={definition} onChange={(event) => setDefinition(event.target.value)} /></label>
+          </div>
           <input
             aria-label="Dashboard name"
             value={name}
